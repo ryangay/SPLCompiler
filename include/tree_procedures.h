@@ -14,8 +14,6 @@ void Optimise(TERNARY_TREE*);
 #ifdef DEBUG
 void PrintTree(TERNARY_TREE, int);
 #else
-extern int *lineno;
-extern int *colno;
 int GenerateC(TERNARY_TREE,int,FILE*);
 #endif  /* DEBUG */
 #endif /* TREE_PROCEDURES_H */
