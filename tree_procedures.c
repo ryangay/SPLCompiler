@@ -66,7 +66,7 @@ static char *get_formatter(enum SymbolTypes type)
         case REAL_T:
             return "%lg";
         default:
-            return "%s";
+            return "";
     }
 }
 
@@ -121,10 +121,10 @@ static TERNARY_TREE fold_constants(TERNARY_TREE left, TERNARY_TREE right, enum O
     if( left_is_number
         && ( (left->first->nodeIdentifier == FLOAT_CONST) || (left->first->nodeIdentifier == NEG_FLOAT_CONST) ) ) {
         return NULL;
-        if( right_is_number 
-            && ( (right->first->nodeIdentifier == FLOAT_CONST) || (right->first->nodeIdentifier == NEG_FLOAT_CONST) ) ) {
-                return NULL;
-        }
+    }
+    if( right_is_number 
+        && ( (right->first->nodeIdentifier == FLOAT_CONST) || (right->first->nodeIdentifier == NEG_FLOAT_CONST) ) ) {
+        return NULL;
     }
     /* We have integers so we are good to continue */
     TERNARY_TREE number_left = left_is_number ? left->first : NULL;
@@ -616,9 +616,13 @@ int GenerateC(TERNARY_TREE t, int level, FILE* output)
 			int sym_count = 0;
             for(sym_count = 0; sym_count < tempSymTabRec->in_use; sym_count++)
             {
-                SYMTABNODEPTR currentSym = tempSymTabRec->array[sym_count];
-                currentSym->type = currType;
-                currentSym->declared = TRUE;
+                SYMTABNODEPTR current_sym = tempSymTabRec->array[sym_count];
+                current_sym->type = currType;
+                if(current_sym->declared) {
+                    ERROR(*lineno, *colno, "Variable with identifier \"%s\" has already been declared.", current_sym->identifier)
+                    return -1;
+                }
+                current_sym->declared = TRUE;
             }
             return 0;
 		}
@@ -838,6 +842,7 @@ int GenerateC(TERNARY_TREE t, int level, FILE* output)
             return 0;
         case READ_S:
         {
+            reset_dynamic_symtab(tempSymTabRec);
             enum SymbolTypes read_type = symTabRec->array[t->first->item]->type;
 #ifdef DEBUG
             BUFFER_FMT_STRING("/* Type is %d */", read_type) PRINTLINE
@@ -849,6 +854,7 @@ int GenerateC(TERNARY_TREE t, int level, FILE* output)
             PRINTBUFFER
             PRINTCODE(")")
             PRINTCODE(";")
+            tempSymTabRec->array[0]->initialised = TRUE;
             return 0;
         }
         case OUTPUT_LIST:
