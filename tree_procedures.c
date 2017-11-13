@@ -10,8 +10,38 @@ enum OperatorType {ADD, SUBTRACT, MUL, DIV};
 
 char *RESERVED_WORDS[] = {"auto", "double", "int", "struct", "break", "else", "long", "switch", "case", "enum", "register", "typedef", "char", "extern", "return", "union", "const", "float", "short", "unsigned", "continue", "for", "signed", "void", "default", "goto", "sizeof", "volatile", "do", "if", "static", "while"};
 
+
+static void sanitise_identifier(char **);
 static void fold_term(TERNARY_TREE *);
 static void fold_expression(TERNARY_TREE *);
+
+static void sanitise_identifier(char **id_ptr)
+{
+    INFO("Sanitising identifier: %s\n", *id_ptr)
+    static unsigned int gen_var_count;
+    const char gen_var_prefix = 'v';
+    int i;
+    char *id = *id_ptr;
+    int len = (int)(sizeof(RESERVED_WORDS) / sizeof(RESERVED_WORDS[0]));
+    for(i=0; i < len; i++) {
+        char *rsrvd = RESERVED_WORDS[i];
+        size_t rsrvd_len = strlen(rsrvd);
+        size_t id_len    = strlen(id);
+        if(!strncmp(id, rsrvd, id_len > rsrvd_len ? id_len : rsrvd_len)) {
+            char *var_name = NULL;
+            do {
+            free(var_name);
+            size_t name_length = 
+                1 + snprintf(NULL, 0, "%u", gen_var_count) + 1;
+            var_name = (char *)malloc(name_length);
+            snprintf(var_name, name_length, "%c%u", gen_var_prefix, gen_var_count);
+            } while (lookup_symbol(var_name, symTabRec) >= 0);
+            INFO("Sanitised variable name: %s\n", var_name)
+            *id_ptr = var_name;
+            return;
+        }
+    }
+}
 
 static char *make_float_negative(char *float_lit)
 {
@@ -497,9 +527,10 @@ int GenerateC(TERNARY_TREE t, int level, FILE* output)
 {
     static int   declared_sym_only = FALSE;
     static int   currType;
+    static int   lastType;
     static int   insideExpr;
     static char *buffer;
-    static char *fmt_buffer;
+    static char *fmt_buffer = NULL;
     static int   fmt_buffer_length;
            char *indent = NULL;
            int indent_count = 0;
@@ -627,16 +658,17 @@ int GenerateC(TERNARY_TREE t, int level, FILE* output)
             SYMTABNODEPTR currSym;
             BUFFERRESET
             CALLTREENODE(t->second, level, output);
+            currSym = tempSymTabRec->array[0];
             BUFFERCODE(" = ")
             reset_dynamic_symtab(tempSymTabRec);
             CALLTREENODE(t->first, level, output);
-            currSym = tempSymTabRec->array[0];
-            if(currSym && (currSym->type < currType) ) {
+            if(currSym && (currSym->type < lastType) ) {
                 ERROR(0,0,"Invalid assignment: \"%s\" does not have the correct type.\n", currSym->identifier)
                 return -1;
             }
             PRINTBUFFER
             PRINTCODE(";")
+            currSym->initialised = 1;
             return 0;
         }
         case IF_S:
@@ -689,6 +721,7 @@ int GenerateC(TERNARY_TREE t, int level, FILE* output)
             CALLTREENODE(t->second, level, output);
             PRINTBUFFER
             PRINTCODE(" /* value */ ");
+            tempSymTabRec->array[0]->initialised = 1;
             return 0;
         case FOR_PROPERTIES:
         {
@@ -779,8 +812,16 @@ int GenerateC(TERNARY_TREE t, int level, FILE* output)
             reset_dynamic_symtab(tempSymTabRec);
             BUFFERRESET
             CALLTREENODE(t->first, level, output);
+            INFO("Number of outputs: %d", tempSymTabRec->in_use)
+            int sym_count;
+            for(sym_count = 0; sym_count < tempSymTabRec->in_use; sym_count++) {
+                SYMTABNODEPTR curr_sym = tempSymTabRec->array[sym_count];
+                if(curr_sym->identifier && !curr_sym->initialised) {
+                    ERROR(*lineno, *colno, "Attempt to WRITE uninitialised variable \"%s\"\n", curr_sym->identifier)
+                    return -1;
+                }
+            }
             PRINTCODE("printf(\"")
-			int sym_count;
             for(sym_count = 0; sym_count < tempSymTabRec->in_use; sym_count++)
             {
                 PRINTCODE(get_formatter(tempSymTabRec->array[sym_count]->type))
@@ -931,28 +972,36 @@ int GenerateC(TERNARY_TREE t, int level, FILE* output)
         case CHAR_CONST:
             BUFFER_FMT_STRING("'%c'", (char)t->item);
             if(currType < CHAR_T) currType = CHAR_T;
+            lastType = CHAR_T;
             return 0;
         case INT_CONST:
             BUFFER_FMT_STRING("%d", t->item);
             if(currType < INT_T) currType = INT_T;
+            lastType = INT_T;
             return 0;
         case NEG_INT_CONST:
             TREE_INFO("Hit negative integer literal: %d\n", t->item)
             BUFFER_FMT_STRING("%d", -t->item);
             /*TREE_INFO("Literal has been buffered..\n")*/
             if(currType < INT_T) currType = INT_T;
+            lastType = INT_T;
             return 0;
         case FLOAT_CONST:
             BUFFERCODE(symTabRec->array[t->item]->identifier);
             if(currType < REAL_T) currType = REAL_T;
+            lastType = REAL_T;
             return 0;
         case NEG_FLOAT_CONST:
             BUFFERCODE(make_float_negative(symTabRec->array[t->item]->identifier))
             if(currType < REAL_T) currType = REAL_T;
+            lastType = REAL_T;
             return 0;
         case ID_VAL:
         {
             SYMTABNODEPTR sym_ptr = symTabRec->array[t->item];
+            if(!declared_sym_only && !sym_ptr->sanitised) {
+                sanitise_identifier(&(sym_ptr->identifier));
+            }
             if(declared_sym_only && !sym_ptr->declared) {
                 ERROR(*lineno, *colno, "Unknown identifier \"%s\"\n", sym_ptr->identifier)
                 add_symbol(tempSymTabRec, sym_ptr);

@@ -65,7 +65,6 @@ id              {character}({character}|{digit})*
 everything      .
 %%
 {delim}          ;
-\n               NEWLINE_TOKEN;
 ":"              TOKEN(COLON)
 "."              TOKEN(FULLSTOP)
 ";"              TOKEN(SEMICOLON)
@@ -125,6 +124,7 @@ ENDP             TOKEN(ENDP)
 {floating_point} FLOAT_TOKEN(FLOAT)
 {char_const}     CHAR_TOKEN(CHAR)
 {id}             ID_TOKEN(IDENTIFIER)
+{newline}        NEWLINE_TOKEN;
 {everything}     INVALID_TOKEN;
 %%
 
