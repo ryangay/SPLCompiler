@@ -179,10 +179,10 @@ int GenerateC(TERNARY_TREE t, int level, FILE* output)
         {
             SYMTABNODEPTR currSym;
             BUFFERRESET
+            reset_dynamic_symtab(tempSymTabRec);
             CALLTREENODE(t->second, level, output);
             currSym = tempSymTabRec->array[0];
             BUFFERCODE(" = ")
-            reset_dynamic_symtab(tempSymTabRec);
             CALLTREENODE(t->first, level, output);
             if(currSym && (currSym->type < lastType) ) {
                 ERROR(0,0,"Invalid assignment: \"%s\" does not have the correct type.\n", currSym->identifier)
