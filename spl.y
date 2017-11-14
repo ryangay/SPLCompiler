@@ -18,6 +18,8 @@
 
 #if defined DO_TREE_OPS && defined ME
 #include "include/colours.h"
+#include "include/codegen.h"
+#include "include/optimise_tree.h"
 #include "include/splio.h"
 #include "include/symbol_table.h"
 #include "include/tree_procedures.h"
@@ -25,6 +27,9 @@
 #include "include/colours.h"
 #include "include/splio.h"
 #include "symbol_table.c"
+#include "utils.c"
+#include "codegen.c"
+#include "optimise_tree.c"
 #include "tree_procedures.c"
 #include "types.c"
 #endif
