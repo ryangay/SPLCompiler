@@ -5,31 +5,68 @@
 
 enum OperatorType {ADD, SUBTRACT, MUL, DIV};
 
+/* Define a structure to hold the current symbol data */
+typedef struct {
+    SYMTABNODEPTR node;
+    TERNARY_TREE assignment_node;
+    int irremovable;
+    int used;
+} SYMTABNODEDATA;
+
+static SYMTABNODEDATA **symtabnode_data = NULL;
+
+static int expr_is_constant_val(TERNARY_TREE);
+static void replace_val_id(TERNARY_TREE *);
 static void elim_variables(TERNARY_TREE *);
 static TERNARY_TREE fold_constants(TERNARY_TREE, TERNARY_TREE, enum OperatorType);
 static void fold_expression(TERNARY_TREE *);
 static void fold_term(TERNARY_TREE *);
 
-static void elim_variables(TERNARY_TREE  *t) {
-    /* Define a structure to hold the current symbol data */
-    typedef struct {
-        SYMTABNODEPTR node;
-        union {
-            int integer;
-            char character;
-            double real;
-        } val;
-        int has_const_val;
-    } SYMTABNODEDATA;
+static int expr_is_constant_val(TERNARY_TREE t) {
+    int retVal = TRUE;
 
-    SYMTABNODEDATA **symtabnode_data = malloc(sizeof(SYMTABNODEDATA *)*symTabRec->in_use);
-    int node_data_num;
-    for(node_data_num = 0; node_data_num < symTabRec->in_use; node_data_num++) {
-        SYMTABNODEDATA *new = malloc(sizeof(SYMTABNODEDATA));
-        new->node = symTabRec->array[node_data_num];
-        new->has_const_val = 0;
-        symtabnode_data[node_data_num] = new;
+    switch(t->nodeIdentifier) {
+        case EXPR_ADD:
+        case EXPR_MINUS:
+            retVal = expr_is_constant_val(t->second);
+        case EXPRESSION:
+            retVal = retVal == FALSE ? FALSE : expr_is_constant_val(t->first);
+            return retVal;
+        case TERM_MUL:
+        case TERM_DIV:
+            retVal = expr_is_constant_val(t->second);
+        case TERM:
+            retVal = retVal == FALSE ? FALSE : expr_is_constant_val(t->first);
+            return retVal;
+        case VAL_IDENTIFIER:
+            return FALSE;
+        case VAL_EXPR:
+            return expr_is_constant_val(t->first);
+        case VAL_CONSTANT:
+            return TRUE;        
     }
+
+    return FALSE;
+}
+
+static void replace_val_id(TERNARY_TREE *t) {
+    TERNARY_TREE this_node = *t;
+    if(this_node->first->nodeIdentifier != VAL_IDENTIFIER) return;
+    
+    int idNum = this_node->first->first->item; /* TERM -> VAL_IDENTIFIER -> ID_VAL */
+    SYMTABNODEDATA *sym_data = symtabnode_data[idNum];
+    if(sym_data->assignment_node == NULL) {
+        sym_data->used;
+        return;
+    };
+
+    /* Now replace the VAL_IDENTIFIER WITH A VAL_EXPR */
+
+    TERNARY_TREE val_expr = create_inode(NOTHING, VAL_EXPR, sym_data->assignment_node->first, NULL, NULL);
+    TERNARY_TREE old_val = this_node->first;
+    this_node->first = val_expr;
+    free(old_val);
+    *t = this_node;
 }
 
 static TERNARY_TREE fold_constants(TERNARY_TREE left, TERNARY_TREE right, enum OperatorType op) {
@@ -284,6 +321,18 @@ void Optimise(TERNARY_TREE *t)
     }
     TERNARY_TREE this_node = *t;
 
+    if(symtabnode_data == NULL){
+        symtabnode_data = malloc(sizeof(SYMTABNODEDATA *)*symTabRec->in_use);
+        int node_data_num;
+        for(node_data_num = 0; node_data_num < symTabRec->in_use; node_data_num++) {
+            SYMTABNODEDATA *new = malloc(sizeof(SYMTABNODEDATA));
+            new->node = symTabRec->array[node_data_num];
+            new->used = FALSE;
+            new->irremovable = FALSE;
+            symtabnode_data[node_data_num] = new;
+        }
+    }
+
     Optimise(&(this_node->first));
     Optimise(&(this_node->second));
     Optimise(&(this_node->third));
@@ -315,7 +364,20 @@ void Optimise(TERNARY_TREE *t)
         case STATEMENT:
             break;
         case ASSIGNMENT:
+        {
+            int idNum = this_node->second->item;
+
+            /* Determine whether the value being assigned in constant or not. */
+            if(!expr_is_constant_val(this_node->first)){
+                symtabnode_data[idNum]->assignment_node = this_node;
+                break;
+            }
+
+            /* Get the identifier being assigned to */
+            symtabnode_data[idNum]->assignment_node = this_node;
+            INFO("Found assignment")
             break;
+        }
         case IF_S:
             break;
         case DO_S:
@@ -325,6 +387,7 @@ void Optimise(TERNARY_TREE *t)
         case FOR_S:
             break;
         case FOR_ASSIGN:
+            symtabnode_data[this_node->first->item]->irremovable = TRUE;
             break;
         case FOR_PROPERTIES:
             break;
@@ -335,9 +398,16 @@ void Optimise(TERNARY_TREE *t)
         case WRITE_NEWLINE:
             break;
         case READ_S:
+            symtabnode_data[this_node->first->item]->used = TRUE;
+            symtabnode_data[this_node->first->item]->irremovable = TRUE;
             break;
         case OUTPUT_LIST:
-            break;
+        {
+            if(this_node->first->nodeIdentifier != VAL_IDENTIFIER) {
+                break;
+            }
+            replace_val_id(t);
+        }
         case CONDITIONAL:
             break;
         case NEGATION:
@@ -361,7 +431,10 @@ void Optimise(TERNARY_TREE *t)
             fold_expression(t);
             break;
         case TERM:
-            break;
+        {
+            if(this_node->first->nodeIdentifier != VAL_IDENTIFIER) break;
+            replace_val_id(t);
+        }
         case TERM_MUL:
             INFO("Attempting to fold term..\n")
             fold_term(t);

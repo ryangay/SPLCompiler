@@ -450,9 +450,9 @@ int GenerateC(TERNARY_TREE t, int level, FILE* output)
             {
                 int notAlreadyInside = insideExpr == FALSE;
                 TREE_INFO("Entered expression%s..current buffer is \n%s\n", notAlreadyInside ? " at top of expr tree" : "", buffer)
-                if(notAlreadyInside) insideExpr == TRUE;
+                if(notAlreadyInside) insideExpr = TRUE;
                 CALLTREENODE(t->first, level, output);
-                if(notAlreadyInside) insideExpr == FALSE;
+                if(notAlreadyInside) insideExpr = FALSE;
             }
             return 0;
         case EXPR_ADD:
