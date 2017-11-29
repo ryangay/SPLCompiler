@@ -8,7 +8,7 @@ enum OperatorType {ADD, SUBTRACT, MUL, DIV};
 /* Define a structure to hold the current symbol data */
 typedef struct {
     SYMTABNODEPTR node;
-    TERNARY_TREE assignment_node;
+    TERNARY_TREE *assignment_node;
     int irremovable;
     int used;
 } SYMTABNODEDATA;
@@ -55,6 +55,7 @@ static void replace_val_id(TERNARY_TREE *t) {
     
     int idNum = this_node->first->first->item; /* TERM -> VAL_IDENTIFIER -> ID_VAL */
     SYMTABNODEDATA *sym_data = symtabnode_data[idNum];
+    if(sym_data->irremovable) return;
     if(sym_data->assignment_node == NULL) {
         sym_data->used;
         return;
@@ -62,7 +63,7 @@ static void replace_val_id(TERNARY_TREE *t) {
 
     /* Now replace the VAL_IDENTIFIER WITH A VAL_EXPR */
 
-    TERNARY_TREE val_expr = create_inode(NOTHING, VAL_EXPR, sym_data->assignment_node->first, NULL, NULL);
+    TERNARY_TREE val_expr = create_inode(NOTHING, VAL_EXPR, (*(sym_data->assignment_node))->first, NULL, NULL);
     TERNARY_TREE old_val = this_node->first;
     this_node->first = val_expr;
     free(old_val);
@@ -320,6 +321,12 @@ void Optimise(TERNARY_TREE *t)
         return;
     }
     TERNARY_TREE this_node = *t;
+     /* If we are inside a loop then we may not want to optimise assignments as they could happen more than once
+     ** If an assignment is made on each loop where the value assigned is the same every time, then we may want to optimise this out the loop 
+     ** We check to see if the node is a LOOP_BODY (DO_S), FOR_S OR WHILE_S
+     */
+    static int inside_loop = FALSE;
+    if((this_node->nodeIdentifier == LOOP_BODY) || (this_node->nodeIdentifier == WHILE_S) || (this_node->nodeIdentifier == FOR_S)) inside_loop = TRUE;
 
     if(symtabnode_data == NULL){
         symtabnode_data = malloc(sizeof(SYMTABNODEDATA *)*symTabRec->in_use);
@@ -360,6 +367,14 @@ void Optimise(TERNARY_TREE *t)
         case TYPE_P:
             break;
         case STATEMENT_LIST:
+            if(this_node->first == NULL) {
+                if(this_node->second == NULL) {
+                    free(*t);
+                }
+                else {
+                    *t = this_node->second;
+                }
+            }
             break;
         case STATEMENT:
             break;
@@ -367,24 +382,32 @@ void Optimise(TERNARY_TREE *t)
         {
             int idNum = this_node->second->item;
 
+            SYMTABNODEDATA *curr = symtabnode_data[idNum];
+            if(curr->assignment_node && !curr->irremovable && !curr->used) {
+                /*free*/
+            }
+
             /* Determine whether the value being assigned in constant or not. */
             if(!expr_is_constant_val(this_node->first)){
-                symtabnode_data[idNum]->assignment_node = this_node;
+                curr->assignment_node = t;
                 break;
             }
 
             /* Get the identifier being assigned to */
-            symtabnode_data[idNum]->assignment_node = this_node;
+            symtabnode_data[idNum]->assignment_node = t;
             INFO("Found assignment")
             break;
         }
         case IF_S:
             break;
         case DO_S:
+            inside_loop = FALSE;
             break;
         case WHILE_S:
+            inside_loop = FALSE;
             break;
         case FOR_S:
+            inside_loop = FALSE;
             break;
         case FOR_ASSIGN:
             symtabnode_data[this_node->first->item]->irremovable = TRUE;
@@ -406,7 +429,8 @@ void Optimise(TERNARY_TREE *t)
             if(this_node->first->nodeIdentifier != VAL_IDENTIFIER) {
                 break;
             }
-            replace_val_id(t);
+            if(!inside_loop)
+                replace_val_id(t);
         }
         case CONDITIONAL:
             break;
@@ -433,7 +457,8 @@ void Optimise(TERNARY_TREE *t)
         case TERM:
         {
             if(this_node->first->nodeIdentifier != VAL_IDENTIFIER) break;
-            replace_val_id(t);
+            if(!inside_loop) 
+                replace_val_id(t);
         }
         case TERM_MUL:
             INFO("Attempting to fold term..\n")
